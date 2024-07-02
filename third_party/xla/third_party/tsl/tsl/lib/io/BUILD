@@ -2,8 +2,8 @@ load(
     "@local_tsl//tsl/platform:rules_cc.bzl",
     "cc_library",
 )
-load("//tsl:tsl.bzl", "internal_visibility")
-load("//tsl:tsl.default.bzl", "filegroup")
+load("@local_xla//xla/tsl:tsl.bzl", "internal_visibility")
+load("@local_xla//xla/tsl:tsl.default.bzl", "filegroup")
 load("//tsl/platform:build_config.bzl", "tsl_cc_test")
 
 package(
@@ -18,6 +18,7 @@ package(
         "//tensorflow/core:__pkg__",
         "//tensorflow/core/lib/io:__subpackages__",
         "//tsl/profiler:__subpackages__",
+        "//tensorflow/core/profiler:__subpackages__",
     ]),
     licenses = ["notice"],
 )

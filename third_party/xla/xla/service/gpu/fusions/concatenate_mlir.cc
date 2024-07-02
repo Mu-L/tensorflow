@@ -18,8 +18,8 @@ limitations under the License.
 #include <cstdint>
 #include <iterator>
 #include <optional>
+#include <vector>
 
-#include "absl/algorithm/container.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -31,18 +31,15 @@ limitations under the License.
 #include "mlir/IR/MLIRContext.h"  // from @llvm-project
 #include "mlir/IR/Value.h"  // from @llvm-project
 #include "mlir/IR/ValueRange.h"  // from @llvm-project
-#include "mlir/Interfaces/DataLayoutInterfaces.h"  // from @llvm-project
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/service/gpu/fusions/concatenate.h"
 #include "xla/service/gpu/fusions/mlir/computation_partitioner.h"
 #include "xla/service/gpu/fusions/mlir/elemental_hlo_to_mlir.h"
-#include "xla/service/gpu/fusions/mlir/ir/xla_gpu_ops.h"
 #include "xla/service/gpu/hlo_fusion_analysis.h"
 #include "xla/service/gpu/launch_dimensions.h"
 #include "xla/service/gpu/model/indexing_analysis.h"
 #include "xla/service/gpu/model/indexing_map.h"
-#include "tsl/platform/errors.h"
 
 namespace xla {
 namespace gpu {
@@ -72,10 +69,12 @@ MlirConcatenateFusion::ComputeThreadIdToInputIndexing(
                                        ctx);
 }
 
-std::vector<const HloInstruction*>
-MlirConcatenateFusion::GetInstructionsWithCustomCodegen(
-    const HloFusionInstruction& fusion) const {
-  return analysis_.fusion_heroes();
+std::vector<mlir_converter::EpilogueSpecification>
+MlirConcatenateFusion::GetEpilogues(const HloFusionInstruction& fusion,
+                                    mlir::MLIRContext* mlir_context) const {
+  return {mlir_converter::EpilogueSpecification::FromIdentityIndexing(
+      &analysis_.fusion_hero(0).instruction(),
+      &analysis_.fusion_root(0).instruction(), mlir_context)};
 }
 
 absl::Status MlirConcatenateFusion::EmitEntryFunction(
@@ -85,7 +84,6 @@ absl::Status MlirConcatenateFusion::EmitEntryFunction(
     const HloFusionInstruction& fusion) const {
   const auto& root_computation = computations.FindPartitionedComputation(
       fusion.fused_instructions_computation());
-  const auto* concat = analysis_.fusion_heroes()[0];
   mlir::ImplicitLocOpBuilder builder(entry_function.getLoc(), entry_function);
   builder.setInsertionPointToStart(entry_function.addEntryBlock());
   auto* ctx = entry_function.getContext();
@@ -103,8 +101,10 @@ absl::Status MlirConcatenateFusion::EmitEntryFunction(
       ComputeThreadIdToInputIndexing(
           /*root_index=*/0, /*hero_operand_index=*/0, ctx)
           .value();
-  auto epilogue_indexing = ComputeEpilogueInputToOutputIndexing(concat, ctx);
+  auto epilogue_indexing = ComputeEpilogueInputToOutputIndexing(
+      analysis_.fusion_hero(0), analysis_.fusion_root(0), ctx);
 
+  const auto* concat = &analysis_.fusion_hero(0).instruction();
   for (auto [operand_index, operand] : llvm::enumerate(concat->operands())) {
     auto input_to_output_map =
         *ComputeInputToOutputIndexing(concat, /*input_id=*/operand_index, ctx)
@@ -118,18 +118,19 @@ absl::Status MlirConcatenateFusion::EmitEntryFunction(
         [&, operand_index = operand_index](
             ValueRange output_tensors, ValueRange dim_values,
             ValueRange symbol_values) -> SmallVector<Value> {
-      auto input_indices =
-          mlir_converter::ApplyAffineMap(thread_id_to_input_map.GetAffineMap(),
-                                         dim_values, symbol_values, builder);
+      auto input_indices = mlir_converter::ApplyIndexing(
+          thread_id_to_input_map, dim_values, symbol_values, builder);
 
-      auto result_scalars = mlir_converter::ProvideParameter(
-          root_computation.FindSubgraph(concat), concat, operand_index,
-          input_indices, call_targets, entry_function, builder);
-      auto output_indices =
-          mlir_converter::ApplyAffineMap(thread_id_to_output_map.GetAffineMap(),
-                                         dim_values, symbol_values, builder);
-      result_scalars = EmitEpilogue(computations, entry_function,
-                                    result_scalars, output_indices, builder);
+      auto result_scalar = mlir_converter::ProvideParameter(
+          root_computation, concat, operand_index, input_indices, call_targets,
+          entry_function, builder);
+      absl::flat_hash_map<const HloInstruction*, llvm::SmallVector<Value>>
+          hero_value{{concat, result_scalar}};
+      auto output_indices = mlir_converter::ApplyIndexing(
+          thread_id_to_output_map, dim_values, symbol_values, builder);
+      auto result_scalars = EmitEpilogue(
+          /*epilogue_index=*/0, computations, entry_function, hero_value,
+          output_indices, builder)[&analysis_.fusion_root(0).instruction()];
 
       SmallVector<Value> result_tensors;
       result_tensors.reserve(output_tensor_args.size());

@@ -402,6 +402,7 @@ cc_library(
         "legalize_tf_with_tf2xla.cc",
     ],
     hdrs = [
+        "legalize_tf_with_tf2xla_passes.h",
         "passes.h",
     ],
     deps = [
@@ -477,6 +478,7 @@ cc_library(
     deps = [
         "//tensorflow/compiler/mlir/tensorflow",
         "//tensorflow/compiler/mlir/tensorflow:tpu_embedding_ops_registry",
+        "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Support",
     ],

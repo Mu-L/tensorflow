@@ -29,59 +29,35 @@ void PopulateDefaultCalibrationOptions(QuantizationConfig& quant_config) {
     quant_config.mutable_calibration_options()->set_calibration_method(
         CalibrationOptions::CALIBRATION_METHOD_MIN_MAX);
   }
+
   switch (quant_config.calibration_options().calibration_method()) {
-    case CalibrationOptions::CALIBRATION_METHOD_MIN_MAX:
-      break;
-    case CalibrationOptions::CALIBRATION_METHOD_AVERAGE_MIN_MAX:
-      break;
     case CalibrationOptions::CALIBRATION_METHOD_HISTOGRAM_PERCENTILE:
-      if (quant_config.calibration_options()
-              .calibration_parameters()
-              .initial_num_bins() == 0) {
-        quant_config.mutable_calibration_options()
-            ->mutable_calibration_parameters()
-            ->set_initial_num_bins(256);
-      }
-      if (quant_config.calibration_options()
-              .calibration_parameters()
-              .min_percentile() == 0) {
-        quant_config.mutable_calibration_options()
-            ->mutable_calibration_parameters()
-            ->set_min_percentile(0.001);
-      }
-      if (quant_config.calibration_options()
-              .calibration_parameters()
-              .max_percentile() == 0) {
-        quant_config.mutable_calibration_options()
-            ->mutable_calibration_parameters()
-            ->set_max_percentile(99.999);
-      }
-      break;
     case CalibrationOptions::CALIBRATION_METHOD_HISTOGRAM_MSE_BRUTEFORCE:
-      if (quant_config.calibration_options()
-              .calibration_parameters()
-              .initial_num_bins() == 0) {
-        quant_config.mutable_calibration_options()
-            ->mutable_calibration_parameters()
-            ->set_initial_num_bins(256);
-      }
-      break;
     case CalibrationOptions::CALIBRATION_METHOD_HISTOGRAM_MSE_MAX_FREQUENCY:
-      if (quant_config.calibration_options()
-              .calibration_parameters()
-              .initial_num_bins() == 0) {
-        quant_config.mutable_calibration_options()
-            ->mutable_calibration_parameters()
-            ->set_initial_num_bins(256);
-      }
-      break;
     case CalibrationOptions::CALIBRATION_METHOD_HISTOGRAM_MSE_SYMMETRIC:
       if (quant_config.calibration_options()
               .calibration_parameters()
-              .initial_num_bins() == 0) {
+              .num_bins() == 0) {
         quant_config.mutable_calibration_options()
             ->mutable_calibration_parameters()
-            ->set_initial_num_bins(256);
+            ->set_num_bins(512);
+      }
+      if (quant_config.calibration_options().calibration_method() ==
+          CalibrationOptions::CALIBRATION_METHOD_HISTOGRAM_PERCENTILE) {
+        if (quant_config.calibration_options()
+                .calibration_parameters()
+                .min_percentile() == 0) {
+          quant_config.mutable_calibration_options()
+              ->mutable_calibration_parameters()
+              ->set_min_percentile(0.001);
+        }
+        if (quant_config.calibration_options()
+                .calibration_parameters()
+                .max_percentile() == 0) {
+          quant_config.mutable_calibration_options()
+              ->mutable_calibration_parameters()
+              ->set_max_percentile(99.999);
+        }
       }
       break;
     default:
@@ -102,9 +78,25 @@ QuantizationSpec GetDefaultStaticRangePtqSpec(StaticRangePtqPreset preset) {
   QuantizationSpec spec{};
   // Default for all ops.
   spec.mutable_matcher()->mutable_function_name()->set_regex(
-      preset.enable_full_int_quantization() ? ".*" : "^.*(conv|dot|gather).*");
+      preset.enable_full_int_quantization() ? ".*"
+                                            : "^.*(dot_general|gather).*");
   spec.mutable_method()->mutable_static_range_ptq();
 
+  return spec;
+}
+
+QuantizationSpec GetDefaultWeightOnlyPtqSpec() {
+  QuantizationSpec spec{};
+  spec.mutable_matcher()->mutable_function_name()->set_regex(
+      "^.*(conv|dot_general).*");
+
+  WeightOnlyPtq& weight_only_ptq_spec =
+      *spec.mutable_method()->mutable_weight_only_ptq();
+  if (auto [iter, inserted] =
+          weight_only_ptq_spec.mutable_input_quantized_types()->try_emplace(1);
+      inserted) {
+    iter->second.mutable_dimension_specs();
+  }
   return spec;
 }
 
@@ -122,14 +114,15 @@ QuantizationSpec GetDefaultStaticRangePtqSpec(StaticRangePtqPreset preset) {
 //       value {dimension_specs {dimension: 3}}}}
 //   }}
 // }
-QuantizationSpec GetStaticRangePtqSpecForConvolution() {
+QuantizationSpec GetPtqSpecForConvolution(Method::MethodCase method_case) {
   QuantizationSpec spec{};
+  if (method_case != Method::kStaticRangePtq) {
+    return spec;
+  }
 
   // Matches all convolution quantizable unit family.
   spec.mutable_matcher()->mutable_function_name()->set_regex(
       "composite_conv.*");
-  StaticRangePtq& static_range_ptq_spec =
-      *spec.mutable_method()->mutable_static_range_ptq();
 
   // Enable per-channel quantization for convolution weights.
   QuantizedType conv_weight_quantized_type{};
@@ -140,9 +133,10 @@ QuantizationSpec GetStaticRangePtqSpecForConvolution() {
 
   // The index of weight operands passed to lifted functions for convolution
   // is 1.
+  StaticRangePtq& static_range_ptq_spec =
+      *spec.mutable_method()->mutable_static_range_ptq();
   static_range_ptq_spec.mutable_input_quantized_types()->try_emplace(
       1, std::move(conv_weight_quantized_type));
-
   return spec;
 };
 
@@ -164,13 +158,31 @@ void ExpandStaticRangePtqPreset(const StaticRangePtqPreset& preset,
   QuantizationSpecs new_specs{};
   *new_specs.add_specs() =
       GetDefaultStaticRangePtqSpec(/*preset=*/config.static_range_ptq_preset());
-  *new_specs.add_specs() = GetStaticRangePtqSpecForConvolution();
+  *new_specs.add_specs() =
+      GetPtqSpecForConvolution(Method::MethodCase::kStaticRangePtq);
 
   // Append user-provided specs to override existing specs.
   const QuantizationSpecs& previous_specs = config.specs();
   new_specs.mutable_specs()->Add(previous_specs.specs().begin(),
                                  previous_specs.specs().end());
 
+  config.clear_static_range_ptq_preset();
+  config.mutable_specs()->Swap(&new_specs);
+}
+
+void ExpandWeightOnlyPtqPreset(QuantizationConfig& config) {
+  // Create a new `QuantizationSpecs` to replace the existing one. The
+  // expansion from `WeightOnlyPtqPreset` gets populated first and then
+  // user-provided explicit `QuantizationSpec`s will be appended.
+  QuantizationSpecs new_specs{};
+  *new_specs.add_specs() = GetDefaultWeightOnlyPtqSpec();
+
+  // Append user-provided specs to override existing specs.
+  const QuantizationSpecs& previous_specs = config.specs();
+  new_specs.mutable_specs()->Add(previous_specs.specs().begin(),
+                                 previous_specs.specs().end());
+
+  config.clear_weight_only_ptq_preset();
   config.mutable_specs()->Swap(&new_specs);
 }
 
@@ -184,12 +196,25 @@ QuantizationConfig ExpandPresets(const QuantizationConfig& config) {
     case QuantizationConfig::kStaticRangePtqPreset:
       ExpandStaticRangePtqPreset(config.static_range_ptq_preset(), new_config);
       break;
+    case QuantizationConfig::kWeightOnlyPtqPreset:
+      ExpandWeightOnlyPtqPreset(new_config);
+      break;
     default:
       // Preset has not been specified. The expansion is a no-op.
       break;
   }
 
   return new_config;
+}
+
+bool HasQuantizationMethod(const QuantizationSpecs& specs,
+                           Method::MethodCase method_case) {
+  for (const auto& spec : specs.specs()) {
+    if (spec.method().method_case() == method_case) {
+      return true;
+    }
+  }
+  return false;
 }
 
 QuantizationConfig PopulateDefaults(

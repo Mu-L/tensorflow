@@ -37,7 +37,6 @@ limitations under the License.
 #include "xla/service/host_memory_offload_annotations.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
-#include "xla/status.h"
 #include "xla/util.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/statusor.h"
@@ -144,9 +143,9 @@ absl::StatusOr<bool> DuplicateBroadcastForEachUse(HloModule* module) {
   return split_at_least_one;
 }
 
-// Walk up in the chain of memory offloaded instructions. Status not-ok when
-// an instructions not supported or end of chain reached.
-// Walks one instruction at a time.
+// Walk up in the chain of memory offloaded instructions. absl::Status not-ok
+// when an instructions not supported or end of chain reached. Walks one
+// instruction at a time.
 absl::StatusOr<std::pair<HloInstruction*, int>> WalkUpMemoryOffload(
     std::pair<HloInstruction*, int> current_value,
     const CallGraph& call_graph) {
@@ -220,10 +219,10 @@ absl::StatusOr<std::pair<HloInstruction*, int>> WalkUpMemoryOffload(
   }
 }
 
-// Walk down in the chain of memory offloaded instructions. Status not-ok when
-// an instructions not supported or end of chain reached.
-// Walks one instruction at a time, but returns multiple instructions for each
-// conforming user.
+// Walk down in the chain of memory offloaded instructions. absl::Status not-ok
+// when an instructions not supported or end of chain reached. Walks one
+// instruction at a time, but returns multiple instructions for each conforming
+// user.
 absl::StatusOr<std::vector<std::pair<HloInstruction*, int>>>
 WalkDownMemoryOffload(const std::pair<HloInstruction*, int64_t>& current_value,
                       const CallGraph& call_graph) {
@@ -232,7 +231,8 @@ WalkDownMemoryOffload(const std::pair<HloInstruction*, int64_t>& current_value,
   VLOG(5) << "Current value in progress: " << current_value.first->ToString()
           << " idx: " << current_value.second;
   std::vector<std::pair<HloInstruction*, int>> results;
-  auto add_gte_for_idx = [&results](HloInstruction* instr, int idx) -> Status {
+  auto add_gte_for_idx = [&results](HloInstruction* instr,
+                                    int idx) -> absl::Status {
     HloInstruction* gte = nullptr;
     for (HloInstruction* user : instr->users()) {
       if (user->opcode() != HloOpcode::kGetTupleElement) {
@@ -248,7 +248,7 @@ WalkDownMemoryOffload(const std::pair<HloInstruction*, int64_t>& current_value,
       }
       results.push_back(std::make_pair(user, -1));
     }
-    return OkStatus();
+    return absl::OkStatus();
   };
   if (current_value.first->user_count() == 0) {
     if (current_value.first->parent()->root_instruction() ==
@@ -342,6 +342,9 @@ absl::StatusOr<bool> ProcessAnnotationForCopyMovement(
   if (instruction->IsRoot()) {
     return false;
   }
+  if (instruction->user_count() == 0) {
+    return false;
+  }
   HloInstruction* starting_instr =
       FindDUSFromAnnotation(instruction->users().at(0));
   // If it's the pure copy case reset instruction.
@@ -400,6 +403,42 @@ absl::StatusOr<bool> ProcessAnnotationForCopyMovement(
               host_memory_offload_annotations::kMoveToDeviceCustomCallTarget)) {
         VLOG(5) << "Couldn't find annotation for consumer instruction in chain";
         return false;
+      }
+
+      // Fix up while body's root instruction shape along the way.
+      if (annotation->IsCustomCall(
+              host_memory_offload_annotations::kMoveToDeviceCustomCallTarget)) {
+        for (HloInstruction* user : annotation->users()) {
+          HloInstruction* root_instruction =
+              annotation->parent()->root_instruction();
+          if (root_instruction == user &&
+              root_instruction->opcode() == HloOpcode::kTuple) {
+            auto callers =
+                call_graph->GetComputationCallers(annotation->parent());
+            if (callers.size() != 1 ||
+                callers[0]->opcode() != HloOpcode::kWhile) {
+              return absl::InvalidArgumentError(
+                  "Expected to be called only by one caller and caller be a "
+                  "While");
+            }
+            for (int i = 0; i < user->operands().size(); i++) {
+              if (user->operands()[i] == annotation &&
+                  annotation->operand(0)->opcode() ==
+                      HloOpcode::kGetTupleElement &&
+                  annotation->operand(0)->operand(0)->opcode() ==
+                      HloOpcode::kParameter &&
+                  annotation->operand(0)->tuple_index() == i) {
+                // A special case where move-to-device is put into the result
+                // tuple element at the same index as where the move-to-device
+                // gets the data from. In this case, while loop's result tuple
+                // should not use move-to-device since at loop entry it's still
+                // on host.
+                user->ReplaceOperandWith(i, annotation->mutable_operand(0))
+                    .IgnoreError();
+              }
+            }
+          }
+        }
       }
       stack.pop_back();
       continue;
@@ -478,25 +517,8 @@ absl::StatusOr<bool> ProcessAnnotationForCopyMovement(
                 "Expected to be called only by one caller");
           }
           auto* caller = callers[0];
-          if (caller->opcode() == HloOpcode::kWhile) {
-            update_shape_layout(std::make_pair(caller, instruction.second),
-                                copy_to_move.first);
-
-            HloInstruction* root_instruction =
-                caller->while_body()->root_instruction();
-            // Fix while loop's result tuple to not use move-to-device since
-            // at loop entry it's still on host.
-            if (root_instruction->operand(instruction.second)
-                    ->IsCustomCall(host_memory_offload_annotations::
-                                       kMoveToDeviceCustomCallTarget)) {
-              root_instruction
-                  ->ReplaceOperandWith(
-                      instruction.second,
-                      root_instruction->mutable_operand(instruction.second)
-                          ->mutable_operand(0))
-                  .IgnoreError();
-            }
-          }
+          update_shape_layout(std::make_pair(caller, instruction.second),
+                              copy_to_move.first);
         }
       }
       stack.pop_back();

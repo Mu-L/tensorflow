@@ -22,6 +22,7 @@ package_group(
     packages = [
         "//tensorflow/compiler/mlir/lite/...",
         "//tensorflow/compiler/mlir/quantization/...",
+        "//tensorflow/compiler/mlir/tensorflow_to_stablehlo/...",
     ] + internal_visibility_allowlist(),
 )
 
@@ -348,7 +349,6 @@ cc_library(
         "passes/insert_quantized_functions.cc",
         "passes/insert_restore_op.cc",
         "passes/insert_save_op.cc",
-        "passes/issue_ids_of_custom_aggregation_ops.cc",
         "passes/lift_hashtable_ops_as_args.cc",
         "passes/lift_quantizable_spots_as_functions.cc",
         "passes/lift_quantizable_spots_as_functions.inc",
@@ -411,6 +411,7 @@ cc_library(
         "//tensorflow/compiler/mlir/quantization/common/quantization_lib",
         "//tensorflow/compiler/mlir/quantization/common/quantization_lib:quantization_config",
         "//tensorflow/compiler/mlir/quantization/stablehlo:quantization_config_proto_cc",
+        "//tensorflow/compiler/mlir/quantization/stablehlo/cc/calibration:calibration_parameters",
         "//tensorflow/compiler/mlir/quantization/tensorflow/cc:const_op_size",
         "//tensorflow/compiler/mlir/quantization/tensorflow/cc:constant_fold",
         "//tensorflow/compiler/mlir/quantization/tensorflow/cc:quantization_unit_loc",
@@ -440,8 +441,6 @@ cc_library(
         "//tensorflow/core/platform:macros",
         "//tensorflow/core/platform:path",
         "//tensorflow/core/tpu:tpu_defs",
-        "//tensorflow/lite/kernels:padding",
-        "//tensorflow/lite/kernels/internal:quantization_util",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -505,6 +504,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
+        "@llvm-project//llvm:Support",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Pass",

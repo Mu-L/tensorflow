@@ -163,7 +163,7 @@ TYPED_TEST_SUITE(CompareTest, SupportedTypes, TestParamNames);
 TYPED_TEST(CompareTest, SupportedTestTypesTensorsWork) {
   using StorageT = typename TypeParam::StorageT;
 
-  absl::SharedBitGen bit_gen;
+  absl::BitGen bit_gen;
   const Shape shape({2, 3, 4});
   Vector<StorageT> lhs_data =
       RandomBuffer<TypeParam::kStorage>(shape, /*min=*/-50, /*max=*/50);
@@ -204,7 +204,7 @@ TYPED_TEST(QuantizedCompareTest, PerTensorWorks) {
   using StorageT = typename TypeParam::StorageT;
   using ExpressedT = typename TypeParam::ExpressedT;
 
-  absl::SharedBitGen bit_gen;
+  absl::BitGen bit_gen;
   const Shape shape({2, 2, 2});
   const ExpressedT scale = static_cast<ExpressedT>(1.5);
   const StorageT zero_point = static_cast<StorageT>(2);
@@ -214,15 +214,16 @@ TYPED_TEST(QuantizedCompareTest, PerTensorWorks) {
       RandomBuffer<TypeParam::kStorage>(shape, /*min=*/zero_point + 1,
                                         /*max=*/zero_point + 5);
   Vector<StorageType<DataType::kI1>> output_data(shape.NumElements());
-  const QuantizedTensorElementType tensor_type =
-      QuantizedTensorElementType::PerTensor<TypeParam::kStorage,
-                                            TypeParam::kExpressed>(scale,
-                                                                   zero_point);
+  const QuantizedElementTypePerTensor tensor_type =
+      QuantizedElementTypePerTensor(TypeParam::kStorage, zero_point,
+                                    TypeParam::kExpressed, scale);
   Tensor lhs_tensor{
-      .type = QuantizedTensorType{.shape = shape, .element_type = tensor_type},
+      .type = QuantizedPerTensorTensorType{.shape = shape,
+                                           .element_type = tensor_type},
       .data = lhs_data.data()};
   Tensor rhs_tensor{
-      .type = QuantizedTensorType{.shape = shape, .element_type = tensor_type},
+      .type = QuantizedPerTensorTensorType{.shape = shape,
+                                           .element_type = tensor_type},
       .data = rhs_data.data()};
   Tensor output_tensor{
       .type = TensorType{.shape = shape, .element_type = DataType::kI1},

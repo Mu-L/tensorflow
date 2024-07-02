@@ -249,9 +249,9 @@ class ParallelBatchDatasetOp::Dataset : public DatasetBase {
         }
       }
 
-      profiler::TraceMe traceme([&] {
-        return profiler::TraceMeEncode("ParallelBatchConsume",
-                                       {{"element_id", result->uid}});
+      tsl::profiler::TraceMe traceme([&] {
+        return tsl::profiler::TraceMeEncode("ParallelBatchConsume",
+                                            {{"element_id", result->uid}});
       });
       mutex_lock l(result->mu);
       // Deallocate tensors allocated for the output.
@@ -376,9 +376,9 @@ class ParallelBatchDatasetOp::Dataset : public DatasetBase {
     void CallBatching(std::shared_ptr<IteratorContext> ctx,
                       const std::shared_ptr<BatchResult>& result)
         TF_LOCKS_EXCLUDED(*mu_) {
-      profiler::TraceMe traceme([&] {
-        return profiler::TraceMeEncode("ParallelBatchProduce",
-                                       {{"element_id", result->uid}});
+      tsl::profiler::TraceMe traceme([&] {
+        return tsl::profiler::TraceMeEncode("ParallelBatchProduce",
+                                            {{"element_id", result->uid}});
       });
 
       if (!input_impl_) {
@@ -439,7 +439,7 @@ class ParallelBatchDatasetOp::Dataset : public DatasetBase {
         return status;
       };
 
-      (*ctx->runner())(copy_elements_fn);
+      (*ctx->runner())(std::move(copy_elements_fn));
     }
 
     void CancelThreads(bool wait) TF_LOCKS_EXCLUDED(mu_) {

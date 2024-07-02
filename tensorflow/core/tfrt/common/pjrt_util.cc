@@ -15,17 +15,19 @@ limitations under the License.
 #include "tensorflow/core/tfrt/common/pjrt_util.h"
 
 #include <memory>
-#include <optional>
-#include <set>
 #include <utility>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xla/pjrt/pjrt_client.h"
+#include "tensorflow/core/framework/resource_mgr.h"
+#include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/platform/errors.h"
+#include "tensorflow/core/platform/refcount.h"
 #include "tensorflow/core/platform/status.h"
 #include "tensorflow/core/tfrt/common/global_state.h"
 #include "tensorflow/core/tfrt/common/pjrt_state.h"
+#include "tsl/platform/errors.h"
 
 namespace tensorflow {
 
@@ -37,14 +39,14 @@ Status SetPjRtClientInTFGlobalResourceManager(
       rmgr->default_container(), kPjRtStateResourceName, &pjrt_state,
       [&](PjRtState** ret) {
         *ret = PjRtState::Create();
-        return OkStatus();
+        return absl::OkStatus();
       }));
   core::ScopedUnref pjrt_state_ref(pjrt_state);
   if (client == nullptr) {
     return errors::InvalidArgument("PJRT client is nullptr.");
   }
   TF_RETURN_IF_ERROR(pjrt_state->SetPjRtClient(device_type, std::move(client)));
-  return OkStatus();
+  return absl::OkStatus();
 }
 
 absl::StatusOr<xla::PjRtClient*> GetPjRtClient(const DeviceType& device_type) {
@@ -54,7 +56,7 @@ absl::StatusOr<xla::PjRtClient*> GetPjRtClient(const DeviceType& device_type) {
       rmgr->default_container(), kPjRtStateResourceName, &pjrt_state,
       [&](PjRtState** ret) {
         *ret = PjRtState::Create();
-        return OkStatus();
+        return absl::OkStatus();
       }));
   core::ScopedUnref pjrt_state_ref(pjrt_state);
   return pjrt_state->GetPjRtClient(device_type);

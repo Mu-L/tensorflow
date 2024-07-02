@@ -33,13 +33,13 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tensorflow/utils/data_dumper_logger_config.h"
 #include "tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.h"
 #include "tensorflow/compiler/mlir/tensorflow/utils/error_util.h"
+#include "xla/tsl/framework/device_type.h"
 #include "tensorflow/core/framework/metrics.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/platform/error_payloads.h"
 #include "tensorflow/core/platform/status.h"
 #include "tensorflow/core/tpu/tpu_defs.h"
 #include "tensorflow/core/util/debug_data_dumper.h"
-#include "tsl/framework/device_type.h"
 #include "tsl/platform/error_logging.h"
 #include "tsl/platform/errors.h"
 
@@ -94,12 +94,7 @@ void AddTPULowerClusterToRuntimeOpsPassPipeline(OpPassManager& pm,
 void AddNonTPULowerClusterToRuntimeOpsPassPipeline(
     OpPassManager& pm, llvm::StringRef module_name) {
   // Rewrite cluster functions into XLA launch ops.
-  if (tensorflow::GetMlirCommonFlags()
-          ->tf_mlir_enable_generic_outside_compilation) {
-    pm.addPass(mlir::TFDevice::CreateXlaRewriteV2Pass());
-  } else {
-    pm.addPass(mlir::TFDevice::CreateXlaRewritePass());
-  }
+  pm.addPass(mlir::TFDevice::CreateXlaRewritePass());
   // Re-run the canonicalizer pass as some cleanup during resource op lifting
   // pass opens up some opportunities for canonicalization of cluster ops.
   // Specifically, we want to eliminate pass through results from the cluster

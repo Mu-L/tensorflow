@@ -33,6 +33,28 @@ cc_library(
 )
 
 cc_library(
+    name = "batch_stats",
+    hdrs = ["batch_stats.h"],
+    deps = [
+        "//tensorflow/core:framework_lite",
+        "@com_google_absl//absl/container:node_hash_map",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+tf_cc_test(
+    name = "batch_stats_test",
+    srcs = ["batch_stats_test.cc"],
+    deps = [
+        ":batch_stats",
+        "//tensorflow/core:test",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "batch_input_task",
     hdrs = ["batch_input_task.h"],
     deps = [
@@ -122,6 +144,16 @@ cc_library(
 )
 
 cc_library(
+    name = "batch_scheduler_utils",
+    srcs = ["batch_scheduler_utils.cc"],
+    hdrs = ["batch_scheduler_utils.h"],
+    deps = [
+        "//tensorflow/core:portable_gif_internal",
+        "@com_google_absl//absl/algorithm:container",
+    ],
+)
+
+cc_library(
     name = "threadsafe_status",
     srcs = ["threadsafe_status.cc"],
     hdrs = ["threadsafe_status.h"],
@@ -147,12 +179,22 @@ tf_cc_test(
     ],
 )
 
+tf_cc_test(
+    name = "batch_scheduler_utils_test",
+    srcs = ["batch_scheduler_utils_test.cc"],
+    deps = [
+        ":batch_scheduler_utils",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "shared_batch_scheduler_hdrs",
     hdrs = ["shared_batch_scheduler.h"],
     deps = [
         ":batch_input_task",
         ":batch_scheduler_hdrs",
+        ":batch_scheduler_utils",
         ":periodic_function_dynamic",
         "//tensorflow/core:framework_lite",
         "//tensorflow/core:lib",
@@ -182,6 +224,7 @@ cc_library(
     deps = [
         ":batch_input_task",
         ":batch_scheduler",
+        ":batch_scheduler_utils",
         ":periodic_function_dynamic",
         "//tensorflow/core:lib",
         "//tensorflow/core/profiler/lib:connected_traceme",
@@ -381,6 +424,8 @@ cc_library(
     deps = [
         ":adaptive_shared_batch_scheduler",
         ":batch_scheduler",
+        ":batch_scheduler_utils",
+        ":batch_stats",
         ":concat_split_util",
         ":input_split_metadata",
         ":shared_batch_scheduler",
@@ -436,7 +481,9 @@ tf_cc_test(
     srcs = ["batch_resource_base_test.cc"],
     deps = [
         ":batch_resource_base",
+        ":batch_stats",
         "//tensorflow/core:framework",
+        "//tensorflow/core/common_runtime:cost_constants",
         "//tensorflow/core/common_runtime:cost_measurement",
         "//tensorflow/core/common_runtime:cost_measurement_registry",
         "//tensorflow/core/common_runtime:no_op_cost_measurement",

@@ -29,14 +29,14 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
+#include "xla/tsl/distributed_runtime/call_options.h"
+#include "xla/tsl/distributed_runtime/coordination/coordination_client.h"
+#include "xla/tsl/distributed_runtime/coordination/coordination_service_agent.h"
 #include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/status.h"
 #include "tensorflow/core/platform/test.h"
 #include "tensorflow/core/platform/threadpool.h"
-#include "tsl/distributed_runtime/call_options.h"
-#include "tsl/distributed_runtime/coordination/coordination_client.h"
-#include "tsl/distributed_runtime/coordination/coordination_service_agent.h"
 #include "tsl/protobuf/coordination_config.pb.h"
 #include "tsl/protobuf/coordination_service.pb.h"
 
@@ -99,6 +99,10 @@ class MockCoordinationServiceAgent : public CoordinationServiceAgent {
               (override));
   MOCK_METHOD(Status, InsertKeyValue,
               (std::string_view key, std::string_view value), (override));
+  MOCK_METHOD(Status, InsertKeyValue,
+              (std::string_view key, std::string_view value,
+               bool allow_overwrite),
+              (override));
   MOCK_METHOD(Status, DeleteKeyValue, (std::string_view key), (override));
   MOCK_METHOD(Status, UpdateKeyValue,
               (std::string_view key, std::string_view value), (override));

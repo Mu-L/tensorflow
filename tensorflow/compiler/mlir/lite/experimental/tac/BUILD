@@ -36,12 +36,14 @@ cc_library(
         ":runtime_metadata_fbs",
         "//tensorflow/compiler/mlir/lite:tensorflow_lite",
         "//tensorflow/compiler/mlir/lite/experimental/tac/hardwares:target_hardware",
+        "//tensorflow/compiler/mlir/lite/quantization/ir:QuantOps",
         "//tensorflow/compiler/mlir/tensorflow",
         "@flatbuffers",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:ArithDialect",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
     ],
 )
 
@@ -53,13 +55,10 @@ tf_cc_test(
     deps = [
         ":execution_metadata_exporter",
         ":runtime_metadata_fbs",
-        "//tensorflow/compiler/mlir/lite:flatbuffer_translate_lib",
         "//tensorflow/compiler/mlir/lite:tensorflow_lite",
         "//tensorflow/compiler/mlir/lite/experimental/tac/hardwares:all-target-hardwares",
         "@com_google_googletest//:gtest_main",
         "@flatbuffers",
-        "@llvm-project//llvm:Support",
-        "@llvm-project//mlir:AllPassesAndDialects",
         "@llvm-project//mlir:ArithDialect",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
@@ -88,6 +87,7 @@ cc_library(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:QuantOps",
         "@llvm-project//mlir:SideEffectInterfaces",
+        "@llvm-project//mlir:Support",
     ],
 )
 
@@ -282,7 +282,6 @@ cc_library(
     deps = [
         ":target_aware_conversion",
         "//tensorflow/compiler/mlir:tf_mlir_opt_main",
-        "//tensorflow/compiler/mlir/tensorflow:mlir_roundtrip_pass_registration",
     ],
     alwayslink = 1,
 )
@@ -324,7 +323,6 @@ cc_library(
         "//tensorflow/compiler/mlir/lite/experimental/tac/utils",
         "//tensorflow/compiler/mlir/tensorflow",
         "//tensorflow/compiler/mlir/tensorflow:error_util",
-        "//tensorflow/compiler/mlir/tensorflow:mlir_roundtrip_pass_registration",
         "//tensorflow/compiler/mlir/tensorflow/transforms:tensorflow_passes",
         "//tensorflow/core:lib",
         "@com_google_absl//absl/status",

@@ -204,6 +204,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
     ],
 )
 
@@ -350,8 +351,8 @@ cc_library(
         "//tensorflow/c/eager:tfe_op_attrs_internal",
         "//tensorflow/c/eager:tfe_tensorhandle_internal",
         "//tensorflow/c/eager/parallel_device:parallel_device_lib",
-        "//tensorflow/compiler/mlir/tensorflow:export_graphdef",
         "//tensorflow/compiler/mlir/tensorflow:mlir_roundtrip_flags",
+        "//tensorflow/compiler/mlir/tf2xla/api/v2:tf_executor_to_graph",
         "//tensorflow/core:core_cpu",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",

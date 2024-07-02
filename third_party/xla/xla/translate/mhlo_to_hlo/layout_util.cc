@@ -15,10 +15,12 @@ limitations under the License.
 
 #include "xla/translate/mhlo_to_hlo/layout_util.h"
 
+#include "absl/status/status.h"
+
 namespace mlir {
 
 // Rewrites the layout of xla_shape if there is tiled sharding.
-xla::Status RewriteLayoutWithShardedShape(
+absl::Status RewriteLayoutWithShardedShape(
     const std::optional<xla::HloSharding>& sharding, bool use_fast_memory,
     const LayoutPreferenceFn& layout_preference_fn,
     const ShapeRepresentationFn& shape_representation_fn,
@@ -58,7 +60,7 @@ xla::Status RewriteLayoutWithShardedShape(
             : per_device_xla_shape);
     *xla_shape->mutable_layout() = per_device_xla_shape.layout();
   }
-  return xla::OkStatus();
+  return absl::OkStatus();
 }
 
 // There is a shape_representation_fn or sharding for an output, this function

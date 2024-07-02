@@ -26,6 +26,7 @@ limitations under the License.
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
 #include "llvm/ADT/STLExtras.h"
@@ -57,9 +58,7 @@ limitations under the License.
 #include "xla/service/llvm_ir/llvm_util.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
-#include "xla/status.h"
 #include "xla/status_macros.h"
-#include "xla/statusor.h"
 #include "xla/stream_executor/device_description.h"
 #include "xla/util.h"
 #include "tsl/platform/errors.h"
@@ -197,7 +196,7 @@ IndexingMap KernelFusionInterface::GetDefaultThreadIdIndexingMap(
   } else {
     indexing_map.AddConstraint(linear_index, Interval{0, num_elements - 1});
   }
-  indexing_map.Simplify(GetIndexingMapForInstruction);
+  indexing_map.Simplify();
   return indexing_map;
 }
 

@@ -36,8 +36,8 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tf2xla/api/v2/cluster_tf.h"
 #include "tensorflow/compiler/mlir/tf2xla/api/v2/tf_dialect_to_executor.h"
 #include "tensorflow/compiler/mlir/tf2xla/internal/mlir_bridge_pass_util.h"
-// #include "tensorflow/compiler/tf2xla/tf2xla_defs.h"
 #include "tensorflow/compiler/tf2xla/xla_op_registry.h"
+#include "xla/tsl/framework/device_type.h"
 #include "tensorflow/core/common_runtime/device_set.h"
 #include "tensorflow/core/framework/device.h"
 #include "tensorflow/core/framework/function.h"
@@ -49,7 +49,6 @@ limitations under the License.
 #include "tensorflow/core/public/session_options.h"
 #include "tensorflow/core/tpu/tpu_defs.h"
 #include "tensorflow/core/util/device_name_utils.h"
-#include "tsl/framework/device_type.h"
 #include "tsl/platform/errors.h"
 
 namespace tensorflow {
@@ -209,9 +208,21 @@ MlirOptimizationPassState MlirBridgePass::GetPassState(
     return MlirOptimizationPassState::Disabled;
   }
 
+  // TODO(b/328084279): when MlirBridgePass::GetPassState() returns
+  // MlirOptimizationPassState::FallbackEnabled or
+  // MlirOptimizationPassState::Enabled, Tensorflow imports a Graph to an
+  // MLIR module, calls MlirBridgePass::Run(), and exports the MLIR module to a
+  // Graph. The Graph->MLIR module->Graph round trip will not happen if
+  // MlirOptimizationPassState::Disabled is returned. Some input graphs with a
+  // TPU device in device_set yet without replication depends on the round
+  // trip, which does not always produce the same Graph. Call
+  // HasTPUDevice(*device_set) to ensure such graps work. Note
+  // MlirBridgePass::Run() will still reject such graphs that they do not go
+  // through the Phase 1 Bridge.
   return GetPassStateImpl(
       /*is_supported_by_replicated_brige*/ IsSupportedByReplicatedBridge(
-          graph, &function_library),
+          graph, &function_library) ||
+          HasTPUDevice(*device_set),
       config_proto, graph, function_library);
 }
 

@@ -39,6 +39,7 @@ cc_library(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:LLVMCommonConversion",
         "@llvm-project//mlir:LLVMDialect",
+        "@llvm-project//mlir:Support",
         "@llvm-project//mlir:TransformUtils",
         "@llvm-project//mlir:Transforms",
     ],
@@ -75,6 +76,7 @@ cc_library(
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:MemRefDialect",
+        "@llvm-project//mlir:Support",
         "@llvm-project//mlir:TransformUtils",
         "@llvm-project//mlir:Transforms",
     ],
@@ -166,7 +168,7 @@ cc_library(
         "@local_xla//xla/service/gpu/llvm_gpu_backend",
     ] + if_cuda_is_configured([
         "@local_tsl//tsl/platform:cuda_libdevice_path",
-        "@local_xla//xla/stream_executor/gpu:asm_compiler",
+        "@local_xla//xla/stream_executor/cuda:cuda_asm_compiler",
     ]) + if_rocm_is_configured([
         "@local_xla//xla/stream_executor/gpu:asm_compiler",
         "//tensorflow/core/platform:rocm_rocdl_path",

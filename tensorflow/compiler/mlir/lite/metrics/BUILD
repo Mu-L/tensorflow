@@ -6,6 +6,7 @@ package(
     default_visibility = [
         "//tensorflow:__pkg__",
         "//tensorflow/compiler/mlir/lite:__subpackages__",
+        "//tensorflow/lite/python/converter:__subpackages__",
         "//tensorflow/lite/toco/python:__subpackages__",
     ],
     licenses = ["notice"],
@@ -72,5 +73,6 @@ cc_library(
         "//tensorflow/lite/python/metrics:converter_error_data_proto_cc",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
     ],
 )

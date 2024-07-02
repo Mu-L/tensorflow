@@ -8,8 +8,8 @@ load(
     "@local_tsl//tsl/platform:rules_cc.bzl",
     "cc_library",
 )
-load("//tsl:tsl.bzl", "internal_visibility")
-load("//tsl:tsl.default.bzl", "get_compatible_with_portable")
+load("@local_xla//xla/tsl:tsl.bzl", "internal_visibility")
+load("@local_xla//xla/tsl:tsl.default.bzl", "get_compatible_with_portable")
 load("//tsl/platform:build_config.bzl", "tsl_cc_test")
 
 # TODO(rdzhabarov): Tighten visibility after migration is complete.
@@ -83,6 +83,7 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     deps = [
         "//tsl/platform:logging",
+        "@com_google_absl//absl/numeric:bits",
     ],
     alwayslink = 1,
 )
@@ -92,7 +93,7 @@ cc_library(
     testonly = 1,
     hdrs = ["status_test_util.h"],
     deps = [
-        "//tsl/platform:status",
+        "//tsl/platform:status_matchers",
         "//tsl/platform:test",
     ],
 )
@@ -102,7 +103,6 @@ cc_library(
     hdrs = ["bits.h"],
     deps = [
         "//tsl/platform:logging",
-        "//tsl/platform:types",
         "@com_google_absl//absl/numeric:bits",
     ],
 )

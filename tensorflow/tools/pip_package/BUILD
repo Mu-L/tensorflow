@@ -85,6 +85,7 @@ filegroup(
     srcs = [
         "//:LICENSE",
         "//third_party/icu/data:LICENSE",
+        "@XNNPACK//:LICENSE",
         "@com_google_absl//:LICENSE",
         "@com_google_protobuf//:LICENSE",
         "@curl//:COPYING",
@@ -113,7 +114,7 @@ filegroup(
             "@com_github_googlecloudplatform_google_cloud_cpp//:LICENSE",
         ],
     }) + select({
-        "@local_tsl//tsl:with_numa_support": [
+        "@local_xla//xla/tsl:with_numa_support": [
             "@hwloc//:COPYING",
         ],
         "//conditions:default": [],

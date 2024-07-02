@@ -15,6 +15,7 @@ package_group(
         "//tensorflow/core/tfrt/saved_model/tests/...",
     ] + if_google([
         "//learning/brain/tfrt/cpp_tests/...",
+        "//learning/serving/servables/tfrt/...",
         "//learning/pathways/serving/runtime/...",
         "//learning/pathways/serving/tests/...",
         "//learning/brain/tfrt/mlir/mlrt/application/pathways/compiler/...",
@@ -160,6 +161,29 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "extract_callback",
+    srcs = ["extract_callback.cc"],
+    hdrs = ["extract_callback.h"],
+    deps = [
+        "//tensorflow/compiler/mlir/tensorflow:error_util",
+        "//tensorflow/compiler/mlir/tensorflow:tensorflow_ops_a_m_inc_gen",
+        "//tensorflow/compiler/mlir/tensorflow:tensorflow_ops_n_z_inc_gen",
+        "//tensorflow/compiler/mlir/tensorflow:visitor",
+        "//tensorflow/core:protos_all_cc",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Support",
+    ],
+)
+
 tf_cc_test(
     name = "tf2hlo_test",
     srcs = [
@@ -170,6 +194,7 @@ tf_cc_test(
     ],
     tags = ["no_oss"],
     deps = [
+        ":ifrt_types",
         ":tf2hlo",
         "//tensorflow/compiler/mlir/tensorflow",
         "//tensorflow/compiler/tf2xla:xla_helpers",
@@ -236,6 +261,7 @@ tf_cc_test(
         "//tensorflow/core/platform:resource_loader",
         "//tensorflow/core/tfrt/graph_executor:graph_execution_options",
         "//tensorflow/core/tfrt/ifrt:ifrt_model_context",
+        "//tensorflow/core/tfrt/ifrt:ifrt_serving_core_selector",
         "//tensorflow/core/tfrt/runtime",
         "//tensorflow/core/tfrt/saved_model:saved_model_testutil",
         "@com_google_absl//absl/strings",
@@ -248,6 +274,7 @@ tf_cc_test(
         "@local_xla//xla/python/ifrt",
         "@local_xla//xla/python/ifrt:test_util",
         "@local_xla//xla/python/pjrt_ifrt:tfrt_cpu_client_test_lib",
+        "@local_xla//xla/tsl/framework/test_util:mock_serving_device_selector",
         "@tf_runtime//:hostcontext",
     ],
 )

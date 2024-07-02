@@ -57,10 +57,12 @@ const absl::string_view kLowPriorityPaddingWithMaxBatchSizeAttrValue =
     "low_priority_padding_with_max_batch_size";
 const absl::string_view kLowPriorityPaddingWithNextAllowedBatchSizeAttrValue =
     "low_priority_padding_with_next_allowed_batch_size";
+const absl::string_view kPriorityIsolationAttrValue = "priority_isolation";
 
 enum class MixedPriorityBatchingPolicy {
   kLowPriorityPaddingWithMaxBatchSize,
-  kLowPriorityPaddingWithNextAllowedBatchSize
+  kLowPriorityPaddingWithNextAllowedBatchSize,
+  kPriorityIsolation
 };
 
 absl::StatusOr<MixedPriorityBatchingPolicy> GetMixedPriorityBatchingPolicy(
@@ -451,7 +453,7 @@ bool Batch<TaskType>::empty() const TF_NO_THREAD_SAFETY_ANALYSIS {
   // TODO(b/160249203): Remove tracer after evaluating a change to reduce
   // lock contention and cpu usage (which is observed in profiler and
   // very data-driven).
-  tensorflow::profiler::TraceMe tracer("BatchTask::empty");
+  tsl::profiler::TraceMe tracer("BatchTask::empty");
   return empty_.load();
 }
 
