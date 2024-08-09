@@ -28,6 +28,7 @@ limitations under the License.
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <ostream>
@@ -35,6 +36,7 @@ limitations under the License.
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "xla/ffi/api/c_api.h"
@@ -44,6 +46,10 @@ limitations under the License.
 // IWYU pragma: end_exports
 
 namespace xla::ffi {
+
+// All user data types that are passed via the execution context or state must
+// be registered with the XLA FFI ahead of time to get unique type id.
+using TypeId = XLA_FFI_TypeId;  // NOLINT
 
 enum class DataType : uint8_t {
   INVALID = XLA_FFI_DataType_INVALID,
@@ -69,6 +75,30 @@ enum class DataType : uint8_t {
   F8E5M2FNUZ = XLA_FFI_DataType_F8E5M2FNUZ,
   F8E4M3FNUZ = XLA_FFI_DataType_F8E4M3FNUZ,
 };
+
+// Create aliases in ::xla::ffi namespace for all DataTypes, for consistency
+// with xla that defines PrimitiveType enums in ::xla namespace.
+inline constexpr DataType PRED = DataType::PRED;
+inline constexpr DataType S8 = DataType::S8;
+inline constexpr DataType S16 = DataType::S16;
+inline constexpr DataType S32 = DataType::S32;
+inline constexpr DataType S64 = DataType::S64;
+inline constexpr DataType U8 = DataType::U8;
+inline constexpr DataType U16 = DataType::U16;
+inline constexpr DataType U32 = DataType::U32;
+inline constexpr DataType U64 = DataType::U64;
+inline constexpr DataType F16 = DataType::F16;
+inline constexpr DataType F32 = DataType::F32;
+inline constexpr DataType F64 = DataType::F64;
+inline constexpr DataType BF16 = DataType::BF16;
+inline constexpr DataType C64 = DataType::C64;
+inline constexpr DataType C128 = DataType::C128;
+inline constexpr DataType TOKEN = DataType::TOKEN;
+inline constexpr DataType F8E5M2 = DataType::F8E5M2;
+inline constexpr DataType F8E4M3FN = DataType::F8E4M3FN;
+inline constexpr DataType F8E4M3B11FNUZ = DataType::F8E4M3B11FNUZ;
+inline constexpr DataType F8E5M2FNUZ = DataType::F8E5M2FNUZ;
+inline constexpr DataType F8E4M3FNUZ = DataType::F8E4M3FNUZ;
 
 inline std::ostream& operator<<(std::ostream& os, const DataType dtype) {
   return os << static_cast<XLA_FFI_DataType>(dtype);
@@ -177,17 +207,93 @@ class Error {
   Error(XLA_FFI_Error_Code errc, std::string message)
       : Error(static_cast<ErrorCode>(errc), std::move(message)) {}
 
-  static Error Success() { return Error(); }
-
   bool success() const { return errc_ == ErrorCode::kOk; }
   bool failure() const { return !success(); }
 
   std::optional<ErrorCode> errc() const { return errc_; }
   const std::string& message() const { return message_; }
 
+  static Error Success() { return Error(); }
+
+  static Error Internal(std::string message) {
+    return Error(ErrorCode::kInternal, std::move(message));
+  }
+
+  static Error InvalidArgument(std::string message) {
+    return Error(ErrorCode::kInvalidArgument, std::move(message));
+  }
+
  private:
   ErrorCode errc_ = ErrorCode::kOk;
   std::string message_;
+};
+
+//===----------------------------------------------------------------------===//
+// Expected<T, E> and ErrorOr<T>
+//===----------------------------------------------------------------------===//
+
+// Forward declare.
+template <typename E>
+class Unexpected;
+
+// TODO(slebedev): Replace with `std::expected` when C++23 is available.
+template <typename T, typename E>
+class Expected {
+ public:
+  constexpr Expected(T value) : data_(std::move(value)) {}  // NOLINT
+  constexpr Expected(Unexpected<E> u);                      // NOLINT
+
+  constexpr operator bool() const {  // NOLINT
+    return has_value();
+  }
+
+  constexpr T& operator*() & { return value(); }
+  constexpr const T& operator*() const& { return value(); }
+  constexpr T&& operator*() && { return std::move(value()); }
+  constexpr const T& operator*() const&& { return std::move(value()); }
+
+  constexpr T* operator->() { return &value(); }
+  constexpr const T* operator->() const { return &value(); }
+
+  constexpr bool has_value() const { return std::holds_alternative<T>(data_); }
+  constexpr bool has_error() const { return std::holds_alternative<E>(data_); }
+
+  constexpr T& value() & { return std::get<T>(data_); }
+  constexpr const T& value() const& { return std::get<T>(data_); }
+  constexpr T&& value() && { return std::get<T>(std::move(data_)); }
+  constexpr const T& value() const&& { return std::get<T>(std::move(data_)); }
+
+  constexpr E& error() & { return std::get<E>(data_); }
+  constexpr const E& error() const& { return std::get<E>(data_); }
+  constexpr E&& error() && { return std::get<E>(std::move(data_)); }
+  constexpr const E&& error() const&& { return std::get<E>(std::move(data_)); }
+
+ private:
+  std::variant<T, E> data_;
+};
+
+template <typename E>
+class Unexpected {
+ public:
+  constexpr Unexpected(E error) : error_(std::move(error)) {}  // NOLINT
+
+ private:
+  template <typename, typename>
+  friend class Expected;
+
+  E error_;
+};
+
+Unexpected(const char*) -> Unexpected<std::string>;
+
+template <typename T, typename E>
+constexpr Expected<T, E>::Expected(Unexpected<E> u)
+    : data_(std::move(u.error_)) {}
+
+template <typename T>
+class ErrorOr : public Expected<T, Error> {
+ public:
+  using Expected<T, Error>::Expected;
 };
 
 //===----------------------------------------------------------------------===//
@@ -473,6 +579,42 @@ struct ArgDecoding<Buffer<dtype, rank>> {
 };
 
 //===----------------------------------------------------------------------===//
+// Type-safe wrapper for accessing a variable number of arguments.
+//===----------------------------------------------------------------------===//
+
+class RemainingArgs : public internal::RemainingArgsBase {
+ public:
+  using internal::RemainingArgsBase::RemainingArgsBase;
+
+  template <typename T>
+  ErrorOr<T> get(size_t index) const {
+    size_t idx = offset() + index;
+    if (XLA_FFI_PREDICT_FALSE(idx >= args()->size)) {
+      return Unexpected(
+          Error(ErrorCode::kInvalidArgument, "Index out of range"));
+    }
+
+    DiagnosticEngine diagnostic;
+    std::optional<T> value = ArgDecoding<T>::Decode(
+        args()->types[idx], args()->args[idx], diagnostic);
+    if (XLA_FFI_PREDICT_FALSE(!value.has_value())) {
+      return Unexpected(Error::Internal(diagnostic.Result()));
+    }
+
+    return *value;
+  }
+};
+
+template <>
+struct internal::Decode<internal::RemainingArgsTag> {
+  static std::optional<RemainingArgs> call(DecodingOffsets& offsets,
+                                           DecodingContext& ctx,
+                                           DiagnosticEngine& diagnostic) {
+    return RemainingArgs(&ctx.call_frame->args, offsets.args);
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Results decoding
 //===----------------------------------------------------------------------===//
 
@@ -509,6 +651,42 @@ struct RetDecoding<Buffer<dtype, rank>> {
 
     return internal::DecodeBuffer<dtype, rank>(
         reinterpret_cast<XLA_FFI_Buffer*>(ret), diagnostic);
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// Type-safe wrapper for accessing a variable number of results.
+//===----------------------------------------------------------------------===//
+
+class RemainingRets : public internal::RemainingRetsBase {
+ public:
+  using internal::RemainingRetsBase::RemainingRetsBase;
+
+  template <typename T>
+  ErrorOr<Result<T>> get(size_t index) const {
+    size_t idx = offset() + index;
+    if (XLA_FFI_PREDICT_FALSE(idx >= rets()->size)) {
+      return Unexpected(
+          Error(ErrorCode::kInvalidArgument, "Index out of range"));
+    }
+
+    DiagnosticEngine diagnostic;
+    std::optional<Result<T>> value = RetDecoding<T>::Decode(
+        rets()->types[idx], rets()->rets[idx], diagnostic);
+    if (XLA_FFI_PREDICT_FALSE(!value.has_value())) {
+      return Unexpected(Error::Internal(diagnostic.Result()));
+    }
+
+    return *value;
+  }
+};
+
+template <>
+struct internal::Decode<internal::RemainingRetsTag> {
+  static std::optional<RemainingRets> call(DecodingOffsets& offsets,
+                                           DecodingContext& ctx,
+                                           DiagnosticEngine& diagnostic) {
+    return RemainingRets(&ctx.call_frame->rets, offsets.rets);
   }
 };
 
@@ -570,20 +748,45 @@ struct AttrDecoding<Pointer<T>> {
 };
 
 //===----------------------------------------------------------------------===//
-// Result encoding
+// Type-safe wrapper for accessing dictionary attributes.
 //===----------------------------------------------------------------------===//
 
-template <>
-struct ResultEncoding<Error> {
-  static XLA_FFI_Error* Encode(const XLA_FFI_Api* api, Error error) {
-    if (error.success()) return nullptr;
+class Dictionary : public internal::DictionaryBase {
+ public:
+  using internal::DictionaryBase::DictionaryBase;
 
-    XLA_FFI_Error_Create_Args args;
-    args.struct_size = XLA_FFI_Error_Create_Args_STRUCT_SIZE;
-    args.priv = nullptr;
-    args.errc = static_cast<XLA_FFI_Error_Code>(*error.errc());
-    args.message = error.message().c_str();
-    return api->XLA_FFI_Error_Create(&args);
+  template <typename T>
+  ErrorOr<T> get(std::string_view name) const {
+    DiagnosticEngine diagnostic;
+    std::optional<T> value = internal::DictionaryBase::get<T>(name, diagnostic);
+    if (!value.has_value()) {
+      return Unexpected(Error::Internal(diagnostic.Result()));
+    }
+    return *value;
+  }
+};
+
+// Decode `AttrsTag` (all attributes) into a `Dictionary`.
+template <>
+struct internal::Decode<internal::AttrsTag<Dictionary>> {
+  static std::optional<Dictionary> call(DecodingOffsets& offsets,
+                                        DecodingContext& ctx,
+                                        DiagnosticEngine& diagnostic) {
+    return Dictionary(&ctx.call_frame->attrs);
+  }
+};
+
+// Decode individual attribute into `Dictionary` type.
+template <>
+struct AttrDecoding<Dictionary> {
+  using Type = Dictionary;
+  static std::optional<Dictionary> Decode(XLA_FFI_AttrType type, void* attr,
+                                          DiagnosticEngine& diagnostic) {
+    if (XLA_FFI_PREDICT_FALSE(type != XLA_FFI_AttrType_DICTIONARY)) {
+      return diagnostic.Emit("Wrong attribute type: expected ")
+             << XLA_FFI_AttrType_DICTIONARY << " but got " << type;
+    }
+    return Dictionary(reinterpret_cast<XLA_FFI_Attrs*>(attr));
   }
 };
 
@@ -593,27 +796,76 @@ struct ResultEncoding<Error> {
 
 namespace internal {
 
-struct ErrorUtil {
-  static const char* GetErrorMessage(const XLA_FFI_Api* api,
-                                     XLA_FFI_Error* error) {
-    XLA_FFI_Error_GetMessage_Args args;
-    args.struct_size = XLA_FFI_Error_GetMessage_Args_STRUCT_SIZE;
-    args.priv = nullptr;
-    args.error = error;
-    api->XLA_FFI_Error_GetMessage(&args);
-    return args.message;
-  }
+inline XLA_FFI_Error* CreateError(const XLA_FFI_Api* api, const Error& error) {
+  XLA_FFI_Error_Create_Args args;
+  args.struct_size = XLA_FFI_Error_Create_Args_STRUCT_SIZE;
+  args.priv = nullptr;
+  args.errc = static_cast<XLA_FFI_Error_Code>(*error.errc());
+  args.message = error.message().c_str();
+  return api->XLA_FFI_Error_Create(&args);
+}
 
-  static void DestroyError(const XLA_FFI_Api* api, XLA_FFI_Error* error) {
-    XLA_FFI_Error_Destroy_Args args;
-    args.struct_size = XLA_FFI_Error_Destroy_Args_STRUCT_SIZE;
-    args.priv = nullptr;
-    args.error = error;
-    api->XLA_FFI_Error_Destroy(&args);
+inline void DestroyError(const XLA_FFI_Api* api, XLA_FFI_Error* error) {
+  XLA_FFI_Error_Destroy_Args args;
+  args.struct_size = XLA_FFI_Error_Destroy_Args_STRUCT_SIZE;
+  args.priv = nullptr;
+  args.error = error;
+  api->XLA_FFI_Error_Destroy(&args);
+}
+
+inline const char* GetErrorMessage(const XLA_FFI_Api* api,
+                                   XLA_FFI_Error* error) {
+  XLA_FFI_Error_GetMessage_Args args;
+  args.struct_size = XLA_FFI_Error_GetMessage_Args_STRUCT_SIZE;
+  args.priv = nullptr;
+  args.error = error;
+  api->XLA_FFI_Error_GetMessage(&args);
+  return args.message;
+}
+
+}  // namespace internal
+
+//===----------------------------------------------------------------------===//
+// Result encoding
+//===----------------------------------------------------------------------===//
+
+// Encodes `Error` as an FFI error.
+template <ExecutionStage stage>
+struct ResultEncoding<stage, Error> {
+  static XLA_FFI_Error* Encode(const XLA_FFI_Api* api,
+                               XLA_FFI_ExecutionContext* ctx, Error error) {
+    if (XLA_FFI_PREDICT_TRUE(error.success())) {
+      return nullptr;
+    }
+
+    return internal::CreateError(api, error);
   }
 };
 
-}  // namespace internal
+// Encodes `ErrorOr<std::unique_ptr<T>>` as an FFI state.
+template <typename T>
+struct ResultEncoding<ExecutionStage::kInstantiate,
+                      ErrorOr<std::unique_ptr<T>>> {
+  static_assert(std::is_same_v<decltype(T::id), TypeId>,
+                "State type must have a static `TypeId id` field");
+
+  static XLA_FFI_Error* Encode(const XLA_FFI_Api* api,
+                               XLA_FFI_ExecutionContext* ctx,
+                               ErrorOr<std::unique_ptr<T>> state) {
+    if (XLA_FFI_PREDICT_TRUE(state.has_value())) {
+      XLA_FFI_State_Set_Args args;
+      args.struct_size = XLA_FFI_State_Set_Args_STRUCT_SIZE;
+      args.priv = nullptr;
+      args.ctx = ctx;
+      args.type_id = &T::id;
+      args.state = state.value().release();
+      args.deleter = +[](void* state) { delete reinterpret_cast<T*>(state); };
+      return api->XLA_FFI_State_Set(&args);
+    }
+
+    return internal::CreateError(api, state.error());
+  }
+};
 
 //===----------------------------------------------------------------------===//
 // PlatformStream
@@ -643,8 +895,8 @@ struct CtxDecoding<PlatformStream<T>> {
 
     if (XLA_FFI_Error* error = api->XLA_FFI_Stream_Get(&args)) {
       diagnostic.Emit("Failed to get platform stream: ")
-          << internal::ErrorUtil::GetErrorMessage(api, error);
-      internal::ErrorUtil::DestroyError(api, error);
+          << internal::GetErrorMessage(api, error);
+      internal::DestroyError(api, error);
       return std::nullopt;
     }
 
@@ -712,10 +964,11 @@ inline std::optional<void*> ScratchAllocator::Allocate(size_t size,
   args.data = nullptr;
   if (XLA_FFI_Error* error = api_->XLA_FFI_DeviceMemory_Allocate(&args)) {
     diagnostic_.Emit("Failed to allocate scratch memory: ")
-        << internal::ErrorUtil::GetErrorMessage(api_, error);
-    internal::ErrorUtil::DestroyError(api_, error);
+        << internal::GetErrorMessage(api_, error);
+    internal::DestroyError(api_, error);
     return std::nullopt;
   }
+  allocations_.push_back({size, args.data});
   return args.data;
 }
 
@@ -734,19 +987,17 @@ inline ScratchAllocator::~ScratchAllocator() {
     args.data = alloc.data;
     if (XLA_FFI_Error* error = api_->XLA_FFI_DeviceMemory_Free(&args)) {
       diagnostic_.Emit("Failed to free scratch memory: ")
-          << internal::ErrorUtil::GetErrorMessage(api_, error);
-      internal::ErrorUtil::DestroyError(api_, error);
+          << internal::GetErrorMessage(api_, error);
+      internal::DestroyError(api_, error);
     }
   }
 }
 
 //===----------------------------------------------------------------------===//
-// UserData
+// Type Registration
 //===----------------------------------------------------------------------===//
 
-// All user data types that are passed via the execution context must be
-// registered with the XLA FFI ahead of time to get unique type id.
-using TypeId = XLA_FFI_TypeId;  // NOLINT
+namespace internal {
 
 inline XLA_FFI_Error* RegisterType(const XLA_FFI_Api* api,
                                    std::string_view name,
@@ -759,14 +1010,23 @@ inline XLA_FFI_Error* RegisterType(const XLA_FFI_Api* api,
   return api->XLA_FFI_TypeId_Register(&args);
 }
 
+}  // namespace internal
+
 #define XLA_FFI_REGISTER_TYPE(API, NAME, TYPE_ID) \
   XLA_FFI_REGISTER_TYPE_(API, NAME, TYPE_ID, __COUNTER__)
-#define XLA_FFI_REGISTER_TYPE_(API, NAME, TYPE_ID, N)  \
-  XLA_FFI_ATTRIBUTE_UNUSED static const XLA_FFI_Error* \
-      xla_ffi_type_##N##_registered_ =                 \
-          [] { return ::xla::ffi::RegisterType(API, NAME, TYPE_ID); }()
+#define XLA_FFI_REGISTER_TYPE_(API, NAME, TYPE_ID, N) \
+  XLA_FFI_REGISTER_TYPE__(API, NAME, TYPE_ID, N)
+#define XLA_FFI_REGISTER_TYPE__(API, NAME, TYPE_ID, N)                 \
+  XLA_FFI_ATTRIBUTE_UNUSED static const XLA_FFI_Error*                 \
+      xla_ffi_type_##N##_registered_ = [] {                            \
+        return ::xla::ffi::internal::RegisterType(API, NAME, TYPE_ID); \
+      }()
 
-// A type tag for automatic decoding user data passed via the execution
+//===----------------------------------------------------------------------===//
+// UserData
+//===----------------------------------------------------------------------===//
+
+// A type tag for automatic user data decoding passed via the execution
 // context.
 template <typename T>
 struct UserData {};
@@ -796,12 +1056,55 @@ struct CtxDecoding<UserData<T>> {
 
     if (XLA_FFI_Error* err = api->XLA_FFI_ExecutionContext_Get(&args); err) {
       diagnostic.Emit("Failed to get user data from execution context: ")
-          << internal::ErrorUtil::GetErrorMessage(api, err);
-      internal::ErrorUtil::DestroyError(api, err);
+          << internal::GetErrorMessage(api, err);
+      internal::DestroyError(api, err);
       return std::nullopt;
     }
 
     return static_cast<Type>(args.data);
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// State
+//===----------------------------------------------------------------------===//
+
+// A type tag for automatic state decoding passed via the execution
+// context.
+template <typename T>
+struct State {};
+
+// Context decoding for state of type `T`.
+//
+// Example: Ffi::Bind().Ctx<State<MyState>>()
+//                     .To([](MyState* state) { ... });
+template <typename T>
+struct CtxDecoding<State<T>> {
+  using Type = T*;
+
+  static_assert(std::is_same_v<decltype(T::id), TypeId>,
+                "State type must have a static `TypeId id` field");
+
+  static std::optional<Type> Decode(const XLA_FFI_Api* api,
+                                    XLA_FFI_ExecutionContext* ctx,
+                                    DiagnosticEngine& diagnostic) {
+    XLA_FFI_State_Get_Args args;
+    args.struct_size = XLA_FFI_State_Get_Args_STRUCT_SIZE;
+    args.priv = nullptr;
+    args.ctx = ctx;
+    args.type_id = &T::id;
+    args.state = nullptr;
+
+    assert(args.type_id->type_id > 0 && "type must be registered with XLA FFI");
+
+    if (XLA_FFI_Error* err = api->XLA_FFI_State_Get(&args); err) {
+      diagnostic.Emit("Failed to get state from execution context: ")
+          << internal::GetErrorMessage(api, err);
+      internal::DestroyError(api, err);
+      return std::nullopt;
+    }
+
+    return static_cast<Type>(args.state);
   }
 };
 

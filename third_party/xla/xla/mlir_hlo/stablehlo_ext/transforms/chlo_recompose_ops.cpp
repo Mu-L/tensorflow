@@ -80,7 +80,7 @@ LogicalResult recomposeChloOpFromCustomCall(stablehlo::CustomCallOp op,
            name == "mhlo.version";
   };
   if (!llvm::all_of(op->getAttrs(), isSupportedAttrName) ||
-      !op.getBackendConfig().empty()) {
+      !op.hasEmptyBackendConfig()) {
     return rewriter.notifyMatchFailure(
         op, "CHLO Recompose custom call did not have required attributes.");
   }
@@ -104,7 +104,7 @@ struct TopKOpRecomposePattern
     auto res = verifyCustomCallOpAttributes(
         op, rewriter, [&](NamedAttribute attr) -> LogicalResult {
           if (attr.getName() != "largest") return success();
-          if (cast<BoolAttr>(attr.getValue()).getValue() == false)
+          if (!cast<BoolAttr>(attr.getValue()).getValue())
             return rewriter.notifyMatchFailure(
                 op, "largest = false is not supported.");
           return success();
