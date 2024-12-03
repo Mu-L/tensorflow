@@ -13,21 +13,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xla/service/gpu/fusions/triton/passes.h"
+#include "xla/backends/cpu/runtime/function_library.h"
 
-#include "llvm/ADT/STLFunctionalExtras.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/Visitors.h"
+#include <atomic>
+#include <cstdint>
 
-namespace xla::gpu {
+namespace xla::cpu {
 
-bool ContainsOp(mlir::Operation* op,
-                llvm::function_ref<bool(mlir::Operation*)> fn) {
-  auto visitor = [&](mlir::Operation* nested_op) {
-    return fn(nested_op) ? mlir::WalkResult::interrupt()
-                         : mlir::WalkResult::advance();
-  };
-  return op->walk(visitor).wasInterrupted();
+FunctionLibrary::TypeId FunctionLibrary::GetNextTypeId() {
+  static auto* counter = new std::atomic<int64_t>(1);
+  return TypeId(counter->fetch_add(1));
 }
 
-}  // namespace xla::gpu
+}  // namespace xla::cpu

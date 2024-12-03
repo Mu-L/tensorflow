@@ -13,16 +13,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xla/backends/cpu/codegen/function_library.h"
+#ifndef XLA_CORE_COLLECTIVES_RANK_ID_H_
+#define XLA_CORE_COLLECTIVES_RANK_ID_H_
 
-#include <atomic>
 #include <cstdint>
 
-namespace xla::cpu {
+#include "xla/tsl/lib/gtl/int_type.h"
 
-FunctionLibrary::TypeId FunctionLibrary::GetNextTypeId() {
-  static auto* counter = new std::atomic<int64_t>(1);
-  return TypeId(counter->fetch_add(1));
-}
+namespace xla {
 
-}  // namespace xla::cpu
+// Strongly-typed integer type for defining the rank of the process in the
+// collective clique.
+TSL_LIB_GTL_DEFINE_INT_TYPE(RankId, int64_t);
+
+}  // namespace xla
+
+#endif  // XLA_CORE_COLLECTIVES_RANK_ID_H_
