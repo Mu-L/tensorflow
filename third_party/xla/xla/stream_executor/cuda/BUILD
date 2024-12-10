@@ -267,7 +267,7 @@ xla_test(
     tags = ["cuda-only"],
     deps = [
         ":cuda_collectives",
-        "//xla/service/gpu/runtime:nccl_api",
+        "//xla/backends/gpu/collectives:gpu_collectives",
         "//xla/stream_executor:platform",
         "//xla/stream_executor:platform_manager",
         "//xla/stream_executor:stream_executor_h",
@@ -392,6 +392,32 @@ cc_library(
         "@local_tsl//tsl/platform:tensor_float_32_utils",
     ]),
     alwayslink = True,
+)
+
+cc_library(
+    name = "cuda_solver_context",
+    srcs = ["cuda_solver_context.cc"],
+    hdrs = ["cuda_solver_context.h"],
+    tags = [
+        "cuda-only",
+        "gpu",
+    ],
+    deps = [
+        "//xla:comparison_util",
+        "//xla:util",
+        "//xla:xla_data_proto_cc",
+        "//xla/stream_executor:blas",
+        "//xla/stream_executor:device_memory",
+        "//xla/stream_executor:gpu_solver_context",
+        "//xla/stream_executor:stream",
+        "//xla/tsl/cuda:cusolver",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@local_config_cuda//cuda:cuda_headers",
+        "@local_tsl//tsl/platform:errors",
+        "@local_tsl//tsl/platform:logging",
+    ],
 )
 
 cc_library(
@@ -1006,6 +1032,7 @@ cc_library(
         "//xla/stream_executor/gpu:scoped_activate_context",
         "//xla/tsl/cuda",  # buildcleaner: keep
         "//xla/tsl/cuda:cudart",  # buildcleaner: keep
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -1353,6 +1380,7 @@ cc_library(
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:semantic_version",
         "//xla/stream_executor/gpu:gpu_asm_opts",
+        "//xla/tsl/platform:subprocess",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/cleanup",
@@ -1372,7 +1400,6 @@ cc_library(
         "@local_tsl//tsl/platform:regexp",
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/platform:statusor",
-        "@local_tsl//tsl/platform:subprocess",
     ],
 )
 
