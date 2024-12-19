@@ -26,6 +26,7 @@ limitations under the License.
 #include <gtest/gtest.h>
 #include "absl/status/status.h"
 #include "absl/strings/str_format.h"
+#include "absl/types/span.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
@@ -114,7 +115,7 @@ TEST(PjRtCApiClientTest, PlatformId) {
   EXPECT_EQ(client->platform_id(), xla::CpuId());
 }
 
-TEST(PjRtCApiClientTest, EmptyExecutableFingerprint) {
+TEST(PjRtCApiClientTest, NonEmptyExecutableFingerprint) {
   SetUpCpuPjRtApi();
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<PjRtClient> client,
                           GetCApiClient("cpu"));
@@ -130,14 +131,28 @@ TEST(PjRtCApiClientTest, EmptyExecutableFingerprint) {
 
   PjRtCApiClient* c_client = dynamic_cast<PjRtCApiClient*>(client.get());
   ASSERT_NE(c_client, nullptr);
-  if (c_client->pjrt_c_api()->pjrt_api_version.minor_version >= 35) {
-    // Empty executable should return an error status.
+  if (c_client->pjrt_c_api()->pjrt_api_version.minor_version >= 58) {
+    EXPECT_TRUE(executable->FingerprintExecutable().ok());
+  } else if (c_client->pjrt_c_api()->pjrt_api_version.minor_version >= 35) {
     EXPECT_FALSE(executable->FingerprintExecutable().ok());
   } else {
     // TODO(yeounoh): To be removed after 01/20/2024.
     EXPECT_EQ(executable->FingerprintExecutable().status().code(),
               absl::StatusCode::kUnimplemented);
   }
+}
+
+TEST(PjRtCApiClientTest, CreateBuffersForAsyncHostToDeviceWithShape) {
+  SetUpCpuPjRtApi();
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<PjRtClient> client,
+                          GetCApiClient("cpu"));
+  xla::Shape host_shape = xla::ShapeUtil::MakeShapeWithDenseLayout(
+      xla::PrimitiveType::F32, /*dimensions=*/{2, 2, 2},
+      /*minor_to_major=*/{1, 0, 2});
+  std::vector<xla::Shape> host_shapes = {host_shape};
+  auto status_or_transfer_manager = client->CreateBuffersForAsyncHostToDevice(
+      absl::MakeSpan(host_shapes), client->addressable_devices()[0]);
+  EXPECT_FALSE(status_or_transfer_manager.ok());
 }
 
 TEST(PjRtClientTest, CreateViewAndCopyToDeviceAsyncExternalCpuOnly) {
