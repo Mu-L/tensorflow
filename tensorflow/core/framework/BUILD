@@ -44,6 +44,8 @@ default_visibility = [
     #internal nexus library tests,
     "//tensorflow/compiler/jit:__subpackages__",
     #internal library,
+    # TODO(matthurd): to be removed when summary.proto.h deps moves to TSL
+    "@org_xprof//xprof:__subpackages__",
 ]
 
 package(
@@ -843,6 +845,7 @@ tf_cuda_library(
         "variant_tensor_data.h",
     ],
     visibility = [
+        "//learning/gemini/gemax/core/models/gemini3/vision/vision_decoder:__pkg__",
         "//learning/infra/runtime/experimental/mixed_engine:__subpackages__",
         "//tensorflow:__pkg__",
         "//tensorflow/core:__pkg__",

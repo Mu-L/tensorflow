@@ -1,6 +1,6 @@
 load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
 load("@local_config_rocm//rocm:build_defs.bzl", "if_rocm")
-load("//xla:xla.bzl", "xla_cc_test")
+load("//xla:xla.default.bzl", "xla_cc_test")
 load("//xla/pjrt/gpu:package_groups.bzl", "xla_gpu_internal_packages")
 load("//xla/stream_executor:build_defs.bzl", "if_cuda_or_rocm")
 load("//xla/tests:build_defs.bzl", "xla_test")
@@ -58,6 +58,7 @@ cc_library(
         ":gpu_metrics",
         ":gpu_topology",
         ":gpu_topology_proto_cc",
+        ":raw_buffer",
         ":se_gpu_topology_description",
         "//xla:executable_run_options",
         "//xla:literal",
@@ -152,6 +153,7 @@ cc_library(
         "//xla/service/gpu:stream_executor_util",
     ]) + if_cuda([
         # keep sorted
+        "//xla/service/gpu/model:gpu_collective_performance_model",
         "//xla/stream_executor/gpu:gpu_cudamallocasync_allocator",
         "@local_config_cuda//cuda:cuda_headers",
     ]) + if_rocm([
@@ -194,6 +196,7 @@ xla_cc_test(
         "//xla/pjrt:pjrt_executable",
         "//xla/pjrt:pjrt_future",
         "//xla/pjrt:pjrt_stream_executor_client",
+        "//xla/pjrt:raw_buffer",
         "//xla/pjrt/distributed",
         "//xla/pjrt/distributed:client",
         "//xla/pjrt/distributed:in_memory_key_value_store",
@@ -210,6 +213,7 @@ xla_cc_test(
         "//xla/tsl/platform:statusor",
         "//xla/tsl/platform:subprocess",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -313,6 +317,7 @@ cc_library(
         "//xla/service:dump",
         "//xla/service:hlo_module_config",
         "//xla/service:hlo_module_util",
+        "//xla/service:hlo_proto_cc",
         "//xla/service:local_service_utils",
         "//xla/service:platform_util",
         "//xla/service/gpu:executable_proto_cc",
@@ -470,13 +475,18 @@ cc_library(
     name = "se_gpu_topology_description",
     srcs = ["se_gpu_topology_description.cc"],
     hdrs = ["se_gpu_topology_description.h"],
-    visibility = internal_visibility(["//xla/pjrt/gpu:legacy_gpu_topology_users"]),
+    visibility = internal_visibility([
+        "//xla/pjrt/gpu:legacy_gpu_topology_users",
+        ":__subpackages__",
+    ]),
     deps = [
         ":gpu_topology",
         "//xla:shape_util",
+        "//xla:xla_data_proto_cc",
         "//xla/pjrt:pjrt_compiler",
         "//xla/pjrt:pjrt_device_description",
         "//xla/pjrt:pjrt_stream_executor_device_description",
+        "//xla/stream_executor:device_description_proto_cc",
         "//xla/tsl/lib/strings:proto_serialization",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
@@ -484,4 +494,22 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
     ],
+)
+
+cc_library(
+    name = "raw_buffer",
+    srcs = ["raw_buffer.cc"],
+    hdrs = ["raw_buffer.h"],
+    deps = [
+        "//xla/pjrt:pjrt_client",
+        "//xla/pjrt:pjrt_future",
+        "//xla/pjrt:pjrt_stream_executor_client",
+        "//xla/pjrt:raw_buffer",
+        "//xla/pjrt:tracked_device_buffer",
+        "//xla/tsl/concurrency:async_value",
+        "//xla/tsl/concurrency:ref_count",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ],
+    alwayslink = 1,
 )

@@ -50,6 +50,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/hlo/ir/hlo_original_value.h"
 #include "xla/hlo/ir/ptrvec.h"
 #include "xla/literal.h"
 #include "xla/map_util.h"
@@ -293,8 +294,7 @@ static void DecrementCount(
   }
 }
 
-void HloComputation::AddCallee(const HloInstruction* caller,
-                               HloComputation* callee) {
+void HloComputation::AddCallee(HloInstruction* caller, HloComputation* callee) {
   IncrementCount(callee_computations_, callee);
   IncrementCount(callee->caller_computations_, this);
 
@@ -318,7 +318,7 @@ void HloComputation::AddCallee(const HloInstruction* caller,
   }
 }
 
-void HloComputation::RemoveCallee(const HloInstruction* caller,
+void HloComputation::RemoveCallee(HloInstruction* caller,
                                   HloComputation* callee) {
   CHECK(caller);
   CHECK(callee);
@@ -343,22 +343,20 @@ void HloComputation::RemoveCallee(const HloInstruction* caller,
   }
 }
 
-absl::flat_hash_map<const HloInstruction*, int>*
-HloComputation::GetCallersMap() {
+absl::flat_hash_map<HloInstruction*, int>* HloComputation::GetCallersMap() {
   if (static_cast<CallersType>(callers_ & kCallerTypeMask) ==
       CallersType::kCallerCountHashMap) {
-    return reinterpret_cast<absl::flat_hash_map<const HloInstruction*, int>*>(
+    return reinterpret_cast<absl::flat_hash_map<HloInstruction*, int>*>(
         callers_ & ~kCallerTypeMask);
   }
   return nullptr;
 }
 
-absl::flat_hash_map<const HloInstruction*, int>* const
-HloComputation::GetCallersMap() const {
+absl::flat_hash_map<HloInstruction*, int>* const HloComputation::GetCallersMap()
+    const {
   if (static_cast<CallersType>(callers_ & kCallerTypeMask) ==
       CallersType::kCallerCountHashMap) {
-    return reinterpret_cast<
-        absl::flat_hash_map<const HloInstruction*, int>* const>(
+    return reinterpret_cast<absl::flat_hash_map<HloInstruction*, int>* const>(
         callers_ & ~kCallerTypeMask);
   }
   return nullptr;
@@ -367,8 +365,8 @@ HloComputation::GetCallersMap() const {
 HloInstruction* HloComputation::AddInstructionInternal(
     std::unique_ptr<HloInstruction> instruction) {
   if (parent() != nullptr) {
-    instruction->UniquifyName(&parent()->instruction_name_uniquer());
-    instruction->SetUniqueId(parent()->NewUniqueInstructionId());
+    instruction->UniquifyName(parent());
+    instruction->UniquifyId(parent());
   }
   instruction->set_parent(this);
   HloInstruction* pinst = instruction.release();  // Take ownership
@@ -1042,9 +1040,6 @@ void HloComputation::Print(Printer* printer,
 void HloComputation::Print(
     Printer* printer, const HloPrintOptions& options,
     absl::Span<const HloInstruction* const> instruction_order) const {
-  if (!instruction_order.empty()) {
-    CHECK_EQ(instruction_order.size(), instruction_count());
-  }
   const std::string tab(2 * options.indent_amount(), ' ');
 
   printer->Append(tab);
@@ -1592,20 +1587,7 @@ absl::StatusOr<bool> HloComputation::ReplaceInstructionWithDifferentShape(
     new_instruction->set_frontend_attributes(
         old_instruction->frontend_attributes());
   }
-  if (auto original_value = old_instruction->original_value()) {
-    // Fusions are handled separately. The original value of fused instructions
-    // is copied when they are added into the fused computation.
-    if (new_instruction->opcode() != HloOpcode::kFusion) {
-      if (ShapeUtil::Compatible(old_instruction->shape(),
-                                new_instruction->shape())) {
-        new_instruction->set_original_value(original_value);
-      } else {
-        LOG(WARNING)
-            << "Expect the new instruction to have the same shape with the old "
-               "instruction when copying over original_value\n";
-      }
-    }
-  }
+  CopyOriginalValue(old_instruction, new_instruction);
 
   // Like the metadata above, if the user didn't specify any sharding
   // information on the new instruction we should copy the old sharding

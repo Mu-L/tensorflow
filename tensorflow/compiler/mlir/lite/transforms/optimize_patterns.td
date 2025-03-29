@@ -1114,6 +1114,24 @@ foreach SelectOp = [TFL_SelectOp, TFL_SelectV2Op] in {
   def Optimize#SelectOp#Not : Pat<
     (SelectOp (TFL_LogicalNotOp $condition), $input1, $input2),
     (SelectOp $condition, $input2, $input1)>;
+  // select(C, true_tensor, false_tensor) -> C
+  def Optimize#SelectOp#IsNoop : Pat<
+    (SelectOp:$result $condition,
+                       (Arith_ConstantOp $input1),
+                       (Arith_ConstantOp $input2)),
+    (replaceWithValue $condition),
+    [(HaveSameType $condition, $result),
+     (AllElementsAreBool<"true"> $input1),
+     (AllElementsAreBool<"false"> $input2)]>;
+  // select(C, false_tensor, true_tensor) -> logical_not(C)
+  def Optimize#SelectOp#IsNegate : Pat<
+    (SelectOp:$result $condition,
+                       (Arith_ConstantOp $input1),
+                       (Arith_ConstantOp $input2)),
+    (TFL_LogicalNotOp $condition),
+    [(HaveSameType $condition, $result),
+     (AllElementsAreBool<"false"> $input1),
+     (AllElementsAreBool<"true"> $input2)]>;
 }
 
 def EliminateLogicalAndTrue : Pat<
@@ -1711,6 +1729,7 @@ def FuseTransposeIntoBatchMatMulRHS: Pat<
     $input, (CreateNoneValue $lhs), TFL_AF_None, TFL_FCWO_Default,
     ConstBoolAttrTrue, $asymmetric_quantize_inputs),
   [(HasRank<2> $input),
+   (AnyStaticShapeTensor $input),
    (AreLastTwoDimsTransposed $perm_value),
    (IsBoolAttrEqual<"false"> $adj_x),
    (IsBoolAttrEqual<"false"> $adj_y)]>;
@@ -1950,3 +1969,84 @@ def RealDivWithF32ConstDivisor : Pat<
       (GetScalarOfType<1> (Arith_ConstantOp $value))),
       (Arith_ConstantOp $value),  TFL_AF_None),
     $activation)>;
+
+// Replace casting a boolean tensor to a numeric type, followed by comparing
+// with zero. Note it doesn't matter what type we're casting to. HasSameType
+// enforces both the input being boolean (as result always is), and prevents
+// broadcasts.
+
+// 0 == Cast(bool_tensor) -> logical_not(bool_tensor)
+def ZeroEqualCast : Pat<
+  (TFL_EqualOp:$result (Arith_ConstantOp $zero), (TFL_CastOp $input)),
+  (TFL_LogicalNotOp $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   Cast(bool_tensor) == 0 -> logical_not(bool_tensor)
+def CastEqualZero : Pat<
+  (TFL_EqualOp:$result (TFL_CastOp $input), (Arith_ConstantOp $zero)),
+  (TFL_LogicalNotOp $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   0 <= Cast(bool_tensor) -> constant true
+// Using zeros_like to make sure shapes match.
+def ZeroLessEqualCast : Pat<
+  (TFL_LessEqualOp:$result (Arith_ConstantOp $zero), (TFL_CastOp $input)),
+  (TFL_LogicalNotOp (TFL_ZerosLikeOp $input)),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   Cast(bool_tensor) <= 0 -> logical_not(bool_tensor)
+def CastLessEqualZero : Pat<
+  (TFL_LessEqualOp:$result (TFL_CastOp $input), (Arith_ConstantOp $zero)),
+  (TFL_LogicalNotOp $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   0 >= Cast(bool_tensor) -> logical_not(bool_tensor)
+def ZeroGreaterEqualCast : Pat<
+  (TFL_GreaterEqualOp:$result (Arith_ConstantOp $zero), (TFL_CastOp $input)),
+  (TFL_LogicalNotOp $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   Cast(bool_tensor) >= 0 -> constant true
+// Using zeros_like to make sure shapes match.
+def CastGreaterEqualZero : Pat<
+  (TFL_GreaterEqualOp:$result (TFL_CastOp $input), (Arith_ConstantOp $zero)),
+  (TFL_LogicalNotOp (TFL_ZerosLikeOp $input)),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   0 != Cast(bool_tensor) -> bool_tensor
+def ZeroNotEqualCast : Pat<
+  (TFL_NotEqualOp:$result (Arith_ConstantOp $zero), (TFL_CastOp $input)),
+  (replaceWithValue $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   Cast(bool_tensor) != 0 -> bool_tensor
+def CastNotEqualZero : Pat<
+  (TFL_NotEqualOp:$result (TFL_CastOp $input), (Arith_ConstantOp $zero)),
+  (replaceWithValue $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   0 > Cast(bool_tensor)  -> constant false
+// Using zeros_like to make sure shapes match.
+def ZeroGreaterCast : Pat<
+  (TFL_GreaterOp:$result (Arith_ConstantOp $zero), (TFL_CastOp $input)),
+  (TFL_ZerosLikeOp $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   Cast(bool_tensor) > 0  -> bool_tensor
+def CastGreaterZero : Pat<
+  (TFL_GreaterOp:$result (TFL_CastOp $input), (Arith_ConstantOp $zero)),
+  (replaceWithValue $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   0 < Cast(bool_tensor)  -> bool_tensor
+def ZeroLessCast : Pat<
+  (TFL_LessOp:$result (Arith_ConstantOp $zero), (TFL_CastOp $input)),
+  (replaceWithValue $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;
+
+//   Cast(bool_tensor) < 0  -> constant false
+// Using zeros_like to make sure shapes match.
+def CastLessZero : Pat<
+  (TFL_LessOp:$result (TFL_CastOp $input), (Arith_ConstantOp $zero)),
+  (TFL_ZerosLikeOp $input),
+  [(IsConstantValueOf<0> $zero), (HasSameType $input, $result)]>;

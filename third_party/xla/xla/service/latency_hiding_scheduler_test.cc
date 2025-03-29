@@ -4151,4 +4151,132 @@ ENTRY entry {
             GetIndex(new_instruction_sequence, "cp2d"));
 }
 
+TEST_F(LatencyHidingSchedulerTest, WhileLoopImpossibleScheduleSend) {
+  // For async instructions we can create impossible to schedule situations
+  // where there is no way to schedule a start without going beyond the schedule
+  // because of edges added by the aliasing detection logic in the scheduler.
+  // Encountered this only on send/send-done so far because of tokens being
+  // piped through the send.
+  absl::string_view hlo_string = R"(
+HloModule module, is_scheduled=true
+
+while_cond {
+  param = (bf16[8]{0}, bf16[8]{0}, pred[], token[], token[]) parameter(0)
+  ROOT gte = pred[] get-tuple-element(param), index=2
+}
+
+while_body {
+  param = (bf16[8]{0}, bf16[8]{0}, pred[], token[], token[]) parameter(0)
+  gte0 = bf16[8]{0} get-tuple-element(param), index=0
+  gte2 = bf16[8]{0} get-tuple-element(param), index=1
+  gte1 = pred[] get-tuple-element(param), index=2
+  gte3 = token[] get-tuple-element(param), index=3
+  gte4 = token[] get-tuple-element(param), index=4
+  bitcast = bf16[8]{0} bitcast(gte0)
+  s.1 = (bf16[8]{0}, token[]) send(gte0, gte3)
+  sd.1 = bf16[8]{0} send-done(s.1)
+  s.2 = (bf16[8]{0}, token[]) send(gte2, gte4)
+  sd.2 = bf16[8]{0} send-done(s.2)
+  ROOT tuple = (bf16[8]{0}, bf16[8]{0}, pred[], token[], token[]) tuple(gte2, gte0, gte1, sd.2, sd.1)
+}
+
+ENTRY entry {
+  p0 = bf16[8]{0} parameter(0)
+  p1 = bf16[8]{0} parameter(1)
+  p2 = pred[] parameter(2)
+  after-all0 = token[] after-all()
+  after-all1 = token[] after-all()
+  tuple = (bf16[8]{0}, bf16[8]{0}, pred[], token[], token[]) tuple(p0, p1, p2, after-all0, after-all1)
+  while = (bf16[8]{0}, bf16[8]{0}, pred[], token[], token[]) while(tuple), condition=while_cond, body=while_body
+  gte0 = bf16[8]{0} get-tuple-element(while), index=0
+  gte1 = bf16[8]{0} get-tuple-element(while), index=1
+  ROOT add = bf16[8]{0} add(gte0, gte1)
+}
+)";
+
+  TF_ASSERT_OK_AND_ASSIGN(auto hlo_module, ParseHloText(hlo_string));
+  HloSchedule& module_schedule = hlo_module->schedule();
+  auto sched_config = GetDefaultSchedConfig();
+  sched_config.send_recv_overlap_limit = 1;
+  sched_config.schedule_send_recvs = true;
+  EXPECT_TRUE(hlo_module->has_entry_computation());
+  TF_EXPECT_OK(RunScheduler(hlo_module.get(), sched_config));
+  EXPECT_TRUE(hlo_module->has_entry_computation());
+  HloComputation* while_body = hlo_module->GetComputationWithName("while_body");
+
+  std::vector<HloInstruction*> new_instruction_sequence =
+      module_schedule.sequence(while_body).instructions();
+  if (VLOG_IS_ON(1)) {
+    for (auto* new_i : new_instruction_sequence) {
+      VLOG(1) << new_i->ToString();
+    }
+  }
+}
+
+TEST_F(LatencyHidingSchedulerTest, WhileWithCompleteResourceList) {
+  constexpr absl::string_view hlo_string = R"(
+  HloModule module, is_scheduled=true
+
+  while_cond {
+    param = (f32[16,64,256]{2,1,0}, f32[16,64,256]{2,1,0}, pred[]) parameter(0)
+    ROOT gte = pred[] get-tuple-element(param), index=2
+  }
+
+  while_body {
+    param = (f32[16,64,256]{2,1,0}, f32[16,64,256]{2,1,0}, pred[]) parameter(0)
+    gte0 = f32[16,64,256]{2,1,0} get-tuple-element(param), index=0
+    gte1 = f32[16,64,256]{2,1,0} get-tuple-element(param), index=1
+    gte2 = pred[] get-tuple-element(param), index=2
+    cps0 = (f32[16,64,256]{2,1,0}, f32[16,64,256]{2,1,0}, u32[], u32[]) collective-permute-start(gte1), source_target_pairs={{0,1},{1,2},{2,3},{3,0}}
+    cpd0 = f32[16,64,256]{2,1,0} collective-permute-done(cps0)
+    c = f32[16,256,256]{2,1,0} convolution(gte0, gte0), window={size=16 stride=15 lhs_dilate=16}, dim_labels=0fb_0io->0fb
+    slice = f32[16,64,256]{2,1,0} slice(c), slice={[0:16], [0:64], [0:256]}
+    add = f32[16,64,256]{2,1,0} add(gte0, slice)
+    ROOT tuple = (f32[16,64,256]{2,1,0}, f32[16,64,256]{2,1,0}, pred[]) tuple(add, cpd0, gte2)
+  }
+
+  ENTRY entry {
+    p0 = f32[64,1024]{1,0} parameter(0)
+    p1 = f32[16,64,256]{2,1,0} parameter(1)
+    p2 = f32[16,64,256]{2,1,0} parameter(2)
+    p3 = pred[] parameter(3)
+    cps1 = (f32[16,64,256]{2,1,0}, f32[16,64,256]{2,1,0}) collective-permute-start(p1), source_target_pairs={{0,1},{1,2},{2,3},{3,0}}
+    cpd1 = f32[16,64,256]{2,1,0} collective-permute-done(cps1)
+    cps2 = (f32[64,1024]{1,0}, f32[64,1024]{1,0}) collective-permute-start(p0), source_target_pairs={{0,1},{1,2},{2,3},{3,0}}
+    tuple = (f32[16,64,256]{2,1,0}, f32[16,64,256]{2,1,0}, pred[]) tuple(cpd1, p2, p3)
+    while = (f32[16,64,256]{2,1,0}, f32[16,64,256]{2,1,0}, pred[]) while(tuple), condition=while_cond, body=while_body
+    cpd2 = f32[64,1024]{1,0} collective-permute-done(cps2)
+    gte = f32[16,64,256]{2,1,0} get-tuple-element(while), index=0
+    ROOT tuple1 = (f32[16,64,256]{2,1,0}, f32[64,1024]{1,0}) tuple(gte, cpd2)
+  }
+)";
+  TF_ASSERT_OK_AND_ASSIGN(auto hlo_module, ParseHloText(hlo_string));
+  HloSchedule& module_schedule = hlo_module->schedule();
+  EXPECT_TRUE(hlo_module->has_entry_computation());
+  auto sched_config = GetDefaultSchedConfig();
+  sched_config.aggressive_scheduling_policies = true;
+  sched_config.collective_permute_overlap_limit = 1;
+  EXPECT_TRUE(RunScheduler(hlo_module.get(), sched_config,
+                           std::make_unique<TestLatencyEstimator>())
+                  .ok());
+  EXPECT_TRUE(hlo_module->has_entry_computation());
+
+  std::vector<HloInstruction*> new_instruction_sequence =
+      module_schedule.sequence(hlo_module->entry_computation()).instructions();
+  if (VLOG_IS_ON(1)) {
+    for (auto* new_i : new_instruction_sequence) {
+      VLOG(1) << new_i->ToString();
+    }
+  }
+  // Without proper resources assigned to while, cpd2 would be prioritized (and
+  // hence scheduled after while) even though while has a higher async depth.
+  // With the complete resources assigned to while, it has a similar priority as
+  // cpd2 in terms of the kScheduleDone rule, so we let the kAsyncDepth rule to
+  // prioritize scheduling while. This prevents the needless delaying of blocker
+  // while ops and hence helps reducing the live ranges of their data-dependent
+  // instructions.
+  EXPECT_LT(GetIndex(new_instruction_sequence, "cpd2"),
+            GetIndex(new_instruction_sequence, "while"));
+}
+
 }  // namespace xla

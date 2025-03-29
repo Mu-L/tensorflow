@@ -82,6 +82,8 @@ const auto kSupportedOps =
                     "simple_leaky_relu_op.tflite",
                     "simple_resize_bilinear_op.tflite",
                     "simple_space_to_depth_op.tflite",
+                    "simple_resize_nearest_neighbor_op.tflite",
+                    "simple_relu_op.tflite",
                     kFeedForwardModel,
                     kKeyEinsumModel,
                     kQueryEinsumModel,
@@ -92,13 +94,13 @@ const auto kSupportedOps =
                     kRMSNormModel,
                     kSDPAModel,
                     kAttentionModel,
-                    kTransformerBlockModel
-                    // kQSimpleMul16x16Model,
-                    // kQMulAdd16x16Model,
-                    // kQQueryEinsum16x8Model,
-                    // kQKeyEinsum16x8Model,
-                    // kQVauleEinsum16x8Model,
-                    // kQAttnVecEinsum16x8Model
+                    kTransformerBlockModel,
+                    kQSimpleMul16x16Model,
+                    kQMulAdd16x16Model,
+                    kQQueryEinsum16x8Model,
+                    kQKeyEinsum16x8Model,
+                    kQVauleEinsum16x8Model,
+                    kQAttnVecEinsum16x8Model
                     );
 
 const auto kSupportedSocModels = Values(
@@ -132,7 +134,8 @@ TEST(TestQnnPlugin, PartitionMulOps) {
 
   LiteRtOpListT selected_op_list;
   LITERT_ASSERT_OK(LiteRtCompilerPluginPartition(
-      plugin.get(), model.Subgraph(0)->Get(), &selected_op_list));
+      plugin.get(), /*soc_model=*/nullptr, model.Subgraph(0)->Get(),
+      &selected_op_list));
   const auto selected_ops = selected_op_list.Values();
 
   ASSERT_EQ(selected_ops.size(), 1);
@@ -344,8 +347,8 @@ TEST_P(QnnPluginOpValidationTest, SupportedOpsTest) {
   LiteRtSubgraph litert_subgraph = subgraph->Get();
 
   LiteRtOpListT selected_ops;
-  LITERT_ASSERT_OK(LiteRtCompilerPluginPartition(plugin.get(), litert_subgraph,
-                                                 &selected_ops));
+  LITERT_ASSERT_OK(LiteRtCompilerPluginPartition(
+      plugin.get(), /*soc_model=*/nullptr, litert_subgraph, &selected_ops));
 
   EXPECT_EQ(selected_ops.Values().size(), litert_subgraph->Ops().size());
 }
